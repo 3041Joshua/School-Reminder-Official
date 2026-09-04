@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Soporte · School Reminder</title><link rel="stylesheet" href="css/style.css"></head><body>
+<header class="nav"><div class="container navin"><a class="brand" href="index.html"><img src="assets/logo.png"><span>School Reminder</span></a><a href="index.html" class="btn secondary">← Volver</a></div></header>
+<main class="section"><div class="container"><div class="sectionHead"><span class="eyebrow">Centro de soporte</span><h2>¿En qué podemos ayudarte?</h2><p>Envía una duda, sugerencia o reporte. Se guardará directamente en el sistema de soporte.</p></div>
+<form class="form" id="supportForm"><input class="input" id="name" placeholder="Tu nombre" required><input class="input" id="email" type="email" placeholder="Tu correo" required><select class="select" id="type"><option>Duda</option><option>Sugerencia</option><option>Error</option><option>Otro</option></select><input class="input" id="subject" placeholder="Asunto" required><textarea class="textarea" id="message" placeholder="Cuéntanos qué pasó..." required></textarea><button class="btn primary" type="submit" id="submitBtn">Enviar reporte</button><div class="notice" id="notice"></div></form>
+</div></main>
+<script src="js/firebase-config.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+const app = initializeApp(window.SCHOOL_REMINDER_FIREBASE_CONFIG);
+const db = getFirestore(app);
+const form=document.getElementById('supportForm'), notice=document.getElementById('notice'), btn=document.getElementById('submitBtn');
+form.addEventListener('submit', async e=>{e.preventDefault(); btn.disabled=true; notice.style.display='block'; notice.textContent='Enviando...';
+try {
+ await addDoc(collection(db,'supportTickets'), {uid:null,nombre:document.getElementById('name').value.trim(),correo:document.getElementById('email').value.trim(),tipo:document.getElementById('type').value,asunto:document.getElementById('subject').value.trim(),mensaje:document.getElementById('message').value.trim(),versionApp:'Web',dispositivo:navigator.userAgent,android:'Web',estado:'Pendiente',creadoEn:serverTimestamp(),origen:'web'});
+ notice.textContent='¡Listo! Tu reporte fue enviado correctamente.'; form.reset();
+} catch(err) { notice.textContent='No se pudo enviar. Revisa las reglas de Firestore.'; console.error(err); } finally {btn.disabled=false;}
+});
+</script>
+</body></html>
