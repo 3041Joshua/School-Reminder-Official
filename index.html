@@ -29,6 +29,7 @@
             <a href="#tutorial">Tutorial</a>
             <a href="#faq">Preguntas</a>
             <a href="soporte.html">Soporte</a>
+            <a href="#compartir">Compartir</a>
         </nav>
 
         <a class="btn primary mobile" href="soporte.html">
@@ -415,6 +416,228 @@
 
     </section>
 
+
+    <!-- COMPARTIR -->
+    <section class="section" id="compartir">
+        <div class="container">
+            <div class="sectionHead">
+                <h2>Comparte School Reminder</h2>
+                <p>
+                    Comparte la página con tus amigos, copia el enlace
+                    o escanea el código QR desde otro dispositivo.
+                </p>
+            </div>
+
+            <div class="shareBox">
+                <div class="qrCard">
+                    <div id="schoolReminderQR" aria-label="Código QR de School Reminder"></div>
+                    <p class="qrText">Escanea para abrir School Reminder</p>
+                </div>
+
+                <div class="shareActions">
+                    <button type="button" class="shareBtn sharePrimary" id="btnCompartir">
+                        📤 Compartir página
+                    </button>
+
+                    <button type="button" class="shareBtn" id="btnWhatsApp">
+                        💬 Compartir por WhatsApp
+                    </button>
+
+                    <button type="button" class="shareBtn" id="btnCopiar">
+                        🔗 Copiar enlace
+                    </button>
+
+                    <div class="shareLink" id="shareLink"></div>
+                    <div class="shareStatus" id="shareStatus" role="status" aria-live="polite"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <style>
+        #compartir .shareBox {
+            display: grid;
+            grid-template-columns: minmax(220px, 320px) 1fr;
+            gap: 28px;
+            align-items: center;
+            margin-top: 28px;
+            padding: 28px;
+            border-radius: 24px;
+            background: rgba(255,255,255,.72);
+            border: 1px solid rgba(0,0,0,.08);
+            box-shadow: 0 14px 40px rgba(0,0,0,.08);
+        }
+
+        #compartir .qrCard {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 18px;
+            border-radius: 20px;
+            background: #fff;
+        }
+
+        #schoolReminderQR {
+            width: 220px;
+            height: 220px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #schoolReminderQR img,
+        #schoolReminderQR canvas {
+            display: block;
+            width: 220px !important;
+            height: 220px !important;
+        }
+
+        #compartir .qrText {
+            margin: 0;
+            text-align: center;
+            font-size: .92rem;
+            opacity: .75;
+        }
+
+        #compartir .shareActions {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        #compartir .shareBtn {
+            appearance: none;
+            border: 0;
+            border-radius: 14px;
+            padding: 14px 18px;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+            background: #f1f1f1;
+            color: #171717;
+            transition: transform .15s ease, opacity .15s ease;
+        }
+
+        #compartir .shareBtn:hover {
+            transform: translateY(-1px);
+            opacity: .92;
+        }
+
+        #compartir .sharePrimary {
+            background: #49b51f;
+            color: #fff;
+        }
+
+        #compartir .shareLink {
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: rgba(0,0,0,.045);
+            font-size: .88rem;
+            word-break: break-all;
+            opacity: .78;
+        }
+
+        #compartir .shareStatus {
+            min-height: 22px;
+            font-size: .9rem;
+            font-weight: 600;
+        }
+
+        @media (max-width: 700px) {
+            #compartir .shareBox {
+                grid-template-columns: 1fr;
+                padding: 20px;
+            }
+
+            #schoolReminderQR,
+            #schoolReminderQR img,
+            #schoolReminderQR canvas {
+                width: 190px !important;
+                height: 190px !important;
+            }
+        }
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+        (function () {
+            const pageUrl = "https://school-reminder-official.netlify.app/";
+            const title = "School Reminder";
+            const text = "Mira School Reminder: una app para organizar tareas, horarios y calificaciones.";
+
+            const qr = document.getElementById("schoolReminderQR");
+            const link = document.getElementById("shareLink");
+            const status = document.getElementById("shareStatus");
+
+            if (link) link.textContent = pageUrl;
+
+            if (qr && window.QRCode) {
+                new QRCode(qr, {
+                    text: pageUrl,
+                    width: 220,
+                    height: 220,
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+            }
+
+            function showStatus(message) {
+                if (status) status.textContent = message;
+                setTimeout(() => {
+                    if (status) status.textContent = "";
+                }, 3000);
+            }
+
+            document.getElementById("btnCopiar")?.addEventListener("click", async function () {
+                try {
+                    await navigator.clipboard.writeText(pageUrl);
+                    showStatus("✅ Enlace copiado.");
+                } catch (error) {
+                    const area = document.createElement("textarea");
+                    area.value = pageUrl;
+                    area.style.position = "fixed";
+                    area.style.opacity = "0";
+                    document.body.appendChild(area);
+                    area.select();
+                    document.execCommand("copy");
+                    area.remove();
+                    showStatus("✅ Enlace copiado.");
+                }
+            });
+
+            document.getElementById("btnWhatsApp")?.addEventListener("click", function () {
+                const message = `${text}\n\n${pageUrl}`;
+                const whatsappUrl = "https://wa.me/?text=" + encodeURIComponent(message);
+                window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+            });
+
+            document.getElementById("btnCompartir")?.addEventListener("click", async function () {
+                if (navigator.share) {
+                    try {
+                        await navigator.share({
+                            title: title,
+                            text: text,
+                            url: pageUrl
+                        });
+                        showStatus("✅ Página compartida.");
+                    } catch (error) {
+                        if (error?.name !== "AbortError") {
+                            showStatus("No se pudo abrir el menú de compartir.");
+                        }
+                    }
+                } else {
+                    try {
+                        await navigator.clipboard.writeText(pageUrl);
+                        showStatus("📋 Tu navegador no tiene compartir directo. Enlace copiado.");
+                    } catch (error) {
+                        showStatus("Copia el enlace para compartirlo.");
+                    }
+                }
+            });
+        })();
+    </script>
+
 </main>
 
 
@@ -433,11 +656,7 @@
                 Soporte
             </a>
 
-            ·
-
-            <a href="admin/index.html">
-                Administración
-            </a>
+        
 
         </span>
 
