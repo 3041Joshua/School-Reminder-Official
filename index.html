@@ -12,6 +12,49 @@
     >
 
     <link rel="stylesheet" href="css/style.css">
+
+<style>
+.footerLinks {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+.footerLinks a {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    text-decoration: none;
+}
+.footerLinks .socialIcon {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex: 0 0 auto;
+}
+.footerLinks .socialIcon path {
+    fill: currentColor;
+    stroke: none;
+}
+.footerLinks .socialIcon .socialDot {
+    fill: currentColor;
+    stroke: none;
+}
+@media (max-width: 700px) {
+    .footerin {
+        gap: 14px;
+    }
+    .footerLinks {
+        justify-content: flex-start;
+        gap: 16px;
+    }
+}
+</style>
 </head>
 
 <body>
@@ -693,14 +736,27 @@
             © 2026 JSPROGRAMENT- JOSHUA SANCHEZ
         </span>
 
-        <span>
+        <div class="footerLinks">
+            <a href="https://www.instagram.com/school_reminder_official/" target="_blank" rel="noopener noreferrer" aria-label="Instagram de School Reminder">
+                <svg class="socialIcon" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="3" width="18" height="18" rx="5"></rect>
+                    <circle cx="12" cy="12" r="4.2"></circle>
+                    <circle cx="17.4" cy="6.7" r="1.1" class="socialDot"></circle>
+                </svg>
+                Instagram
+            </a>
+
+            <a href="https://www.tiktok.com/@school_reminder_official" target="_blank" rel="noopener noreferrer" aria-label="TikTok de School Reminder">
+                <svg class="socialIcon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M14.2 3v10.1a4.5 4.5 0 1 1-3.2-4.3v3.2a1.5 1.5 0 1 0 .9 1.4V3h2.3c.3 1.7 1.3 2.9 3 3.4v2.3c-1.1-.2-2.1-.7-3-1.4V3h0z"></path>
+                </svg>
+                TikTok
+            </a>
 
             <a href="soporte.html">
                 Soporte
             </a>
-
-
-        </span>
+        </div>
 
     </div>
 
