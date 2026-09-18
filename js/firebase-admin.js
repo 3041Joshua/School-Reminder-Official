@@ -15,7 +15,9 @@ import {
   doc,
   getDoc,
   updateDoc,
-  serverTimestamp
+  serverTimestamp,
+  addDoc,
+  runTransaction,
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 
 const config = window.SCHOOL_REMINDER_FIREBASE_CONFIG;
@@ -46,6 +48,7 @@ const badge = $("ticketBadge");
 const titles = {
   dashboard: "Resumen general",
   users: "Usuarios",
+  torti: "Torti Coins",
   tickets: "Reportes y soporte",
   versions: "Versiones",
   settings: "Configuración"
@@ -81,6 +84,47 @@ async function loadUsers() {
   return users;
 }
 
+
+async function loadTorti() {
+  const usersSnap = await getDocs(collection(db, "users"));
+  const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data(), uid: d.data().uid || d.id }));
+  const rows = await Promise.all(users.map(async u => {
+    const snap = await getDoc(doc(db, "gamificationAdmin", u.uid));
+    return { ...u, grantedCoins: snap.exists() ? Number(snap.data().grantedCoins || 0) : 0 };
+  }));
+  content.innerHTML = `<div class="panel"><h3>🌮 Torti Coins para testers</h3><p class="muted">Otorga monedas adicionales a un usuario específico. Las monedas entregadas desde aquí quedan registradas y no sustituyen las que el usuario consiga mediante logros.</p><div class="grid2"><div><label>Usuario</label><select id="tortiUser" class="search">${rows.map(u => `<option value="${esc(u.uid)}">${esc(u.nombre || u.correo || u.uid)} · ${esc(u.correo || "")}</option>`).join("")}</select><label style="display:block;margin-top:12px">Cantidad de Torti Coins</label><input id="tortiAmount" class="search" type="number" min="1" max="100000" value="100"><label style="display:block;margin-top:12px">Motivo</label><input id="tortiReason" class="search" maxlength="120" placeholder="Ej. Prueba de la tienda"><button id="grantTorti" class="loginButton" style="margin-top:14px">Otorgar 🌮</button><p id="tortiMsg" class="muted"></p></div><div><h3>Saldo otorgado por administración</h3><div id="tortiSelected" class="panel"></div></div></div></div><div class="panel" style="margin-top:18px"><h3>Usuarios y saldo administrativo</h3><table class="table"><thead><tr><th>Usuario</th><th>UID</th><th>Torti Coins otorgadas</th></tr></thead><tbody>${rows.map(u => `<tr><td><b>${esc(u.nombre || "Sin nombre")}</b><br><small>${esc(u.correo || "")}</small></td><td><small>${esc(u.uid)}</small></td><td>🌮 <b>${u.grantedCoins}</b></td></tr>`).join("")}</tbody></table></div>`;
+
+  const select = $("tortiUser");
+  const refreshSelected = () => {
+    const u = rows.find(x => x.uid === select.value);
+    $("tortiSelected").innerHTML = u ? `<b>${esc(u.nombre || u.correo || u.uid)}</b><p>Otorgadas por admin: 🌮 ${u.grantedCoins}</p>` : "";
+  };
+  select.onchange = refreshSelected;
+  refreshSelected();
+  $("grantTorti").onclick = async () => {
+    const uid = select.value;
+    const amount = Number($("tortiAmount").value);
+    const reason = $("tortiReason").value.trim() || "Recompensa administrativa";
+    const msg = $("tortiMsg");
+    if (!uid || !Number.isInteger(amount) || amount < 1 || amount > 100000) { msg.textContent = "La cantidad debe ser un número entero entre 1 y 100,000."; return; }
+    $("grantTorti").disabled = true;
+    try {
+      const ref = doc(db, "gamificationAdmin", uid);
+      const before = await getDoc(ref);
+      const oldTotal = before.exists() ? Number(before.data().grantedCoins || 0) : 0;
+      await runTransaction(db, async tx => {
+        const snap = await tx.get(ref);
+        const current = snap.exists() ? Number(snap.data().grantedCoins || 0) : 0;
+        tx.set(ref, { uid, grantedCoins: current + amount, updatedAt: serverTimestamp() }, { merge: true });
+      });
+      await addDoc(collection(db, "gamificationAdmin", uid, "history"), { amount, reason, adminUid: auth.currentUser?.uid || "", adminEmail: auth.currentUser?.email || "", previousTotal: oldTotal, createdAt: serverTimestamp() });
+      msg.textContent = `✅ Se otorgaron ${amount} Torti Coins.`;
+      await loadTorti();
+    } catch (e) { msg.textContent = `No se pudo otorgar la recompensa: ${e.message || e}`; }
+    finally { const b=$("grantTorti"); if (b) b.disabled=false; }
+  };
+}
+
 async function loadTickets() {
   const snap = await getDocs(query(collection(db, "supportTickets"), orderBy("creadoEn", "desc")));
   const tickets = snap.docs.map(d => ({id:d.id, ...d.data()}));
@@ -109,6 +153,10 @@ async function render(page = "dashboard") {
     }
     if (page === "tickets") {
       await loadTickets();
+      return;
+    }
+    if (page === "torti") {
+      await loadTorti();
       return;
     }
     if (page === "dashboard") {
@@ -171,4 +219,10 @@ loginBtn.onclick = async () => {
   }
 };
 logoutBtn.onclick = () => signOut(auth);
-document.querySelectorAll("nav button").forEach(b => b.onclick = () => render(b.dataset.page));
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", async () => {
+  const page = b.dataset.page;
+  if (!page) return;
+  title.textContent = titles[page] || page;
+  content.innerHTML = `<div class="panel"><p class="muted">Cargando ${esc(titles[page] || page)}…</p></div>`;
+  await render(page);
+}));
