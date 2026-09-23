@@ -15,9 +15,7 @@ import {
   doc,
   getDoc,
   updateDoc,
-  serverTimestamp,
-  addDoc,
-  runTransaction,
+  serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 
 const config = window.SCHOOL_REMINDER_FIREBASE_CONFIG;
@@ -44,12 +42,13 @@ const logoutBtn = $("logoutBtn");
 const content = $("content");
 const title = $("title");
 const badge = $("ticketBadge");
+const reportBadge = $("reportBadge");
 
 const titles = {
   dashboard: "Resumen general",
   users: "Usuarios",
-  torti: "Torti Coins",
-  tickets: "Reportes y soporte",
+  tickets: "Soporte",
+  userReports: "Reportes de usuarios",
   versions: "Versiones",
   settings: "Configuración"
 };
@@ -84,47 +83,6 @@ async function loadUsers() {
   return users;
 }
 
-
-async function loadTorti() {
-  const usersSnap = await getDocs(collection(db, "users"));
-  const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data(), uid: d.data().uid || d.id }));
-  const rows = await Promise.all(users.map(async u => {
-    const snap = await getDoc(doc(db, "gamificationAdmin", u.uid));
-    return { ...u, grantedCoins: snap.exists() ? Number(snap.data().grantedCoins || 0) : 0 };
-  }));
-  content.innerHTML = `<div class="panel"><h3>🌮 Torti Coins para testers</h3><p class="muted">Otorga monedas adicionales a un usuario específico. Las monedas entregadas desde aquí quedan registradas y no sustituyen las que el usuario consiga mediante logros.</p><div class="grid2"><div><label>Usuario</label><select id="tortiUser" class="search">${rows.map(u => `<option value="${esc(u.uid)}">${esc(u.nombre || u.correo || u.uid)} · ${esc(u.correo || "")}</option>`).join("")}</select><label style="display:block;margin-top:12px">Cantidad de Torti Coins</label><input id="tortiAmount" class="search" type="number" min="1" max="100000" value="100"><label style="display:block;margin-top:12px">Motivo</label><input id="tortiReason" class="search" maxlength="120" placeholder="Ej. Prueba de la tienda"><button id="grantTorti" class="loginButton" style="margin-top:14px">Otorgar 🌮</button><p id="tortiMsg" class="muted"></p></div><div><h3>Saldo otorgado por administración</h3><div id="tortiSelected" class="panel"></div></div></div></div><div class="panel" style="margin-top:18px"><h3>Usuarios y saldo administrativo</h3><table class="table"><thead><tr><th>Usuario</th><th>UID</th><th>Torti Coins otorgadas</th></tr></thead><tbody>${rows.map(u => `<tr><td><b>${esc(u.nombre || "Sin nombre")}</b><br><small>${esc(u.correo || "")}</small></td><td><small>${esc(u.uid)}</small></td><td>🌮 <b>${u.grantedCoins}</b></td></tr>`).join("")}</tbody></table></div>`;
-
-  const select = $("tortiUser");
-  const refreshSelected = () => {
-    const u = rows.find(x => x.uid === select.value);
-    $("tortiSelected").innerHTML = u ? `<b>${esc(u.nombre || u.correo || u.uid)}</b><p>Otorgadas por admin: 🌮 ${u.grantedCoins}</p>` : "";
-  };
-  select.onchange = refreshSelected;
-  refreshSelected();
-  $("grantTorti").onclick = async () => {
-    const uid = select.value;
-    const amount = Number($("tortiAmount").value);
-    const reason = $("tortiReason").value.trim() || "Recompensa administrativa";
-    const msg = $("tortiMsg");
-    if (!uid || !Number.isInteger(amount) || amount < 1 || amount > 100000) { msg.textContent = "La cantidad debe ser un número entero entre 1 y 100,000."; return; }
-    $("grantTorti").disabled = true;
-    try {
-      const ref = doc(db, "gamificationAdmin", uid);
-      const before = await getDoc(ref);
-      const oldTotal = before.exists() ? Number(before.data().grantedCoins || 0) : 0;
-      await runTransaction(db, async tx => {
-        const snap = await tx.get(ref);
-        const current = snap.exists() ? Number(snap.data().grantedCoins || 0) : 0;
-        tx.set(ref, { uid, grantedCoins: current + amount, updatedAt: serverTimestamp() }, { merge: true });
-      });
-      await addDoc(collection(db, "gamificationAdmin", uid, "history"), { amount, reason, adminUid: auth.currentUser?.uid || "", adminEmail: auth.currentUser?.email || "", previousTotal: oldTotal, createdAt: serverTimestamp() });
-      msg.textContent = `✅ Se otorgaron ${amount} Torti Coins.`;
-      await loadTorti();
-    } catch (e) { msg.textContent = `No se pudo otorgar la recompensa: ${e.message || e}`; }
-    finally { const b=$("grantTorti"); if (b) b.disabled=false; }
-  };
-}
-
 async function loadTickets() {
   const snap = await getDocs(query(collection(db, "supportTickets"), orderBy("creadoEn", "desc")));
   const tickets = snap.docs.map(d => ({id:d.id, ...d.data()}));
@@ -143,6 +101,69 @@ async function loadTickets() {
   return tickets;
 }
 
+
+
+async function loadUserReports() {
+  const snap = await getDocs(collection(db, "userReports"));
+  const reports = snap.docs.map(d => ({id:d.id, ...d.data()}));
+  reports.sort((a,b) => {
+    const av = a.createdAt?.seconds || a.creadoEn?.seconds || 0;
+    const bv = b.createdAt?.seconds || b.creadoEn?.seconds || 0;
+    return bv - av;
+  });
+
+  const pending = reports.filter(r => (r.status || r.estado || "Pendiente") === "Pendiente").length;
+  reportBadge.textContent = pending;
+
+  content.innerHTML = `<div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:17px;flex-wrap:wrap">
+      <div><h3 style="margin-bottom:4px">Reportes de usuarios</h3><p class="muted" style="margin:0">Reportes enviados desde la aplicación sobre amigos u otros usuarios.</p></div>
+      <span class="tag red">${pending} pendientes</span>
+    </div>
+    <input class="search" id="reportSearch" placeholder="Buscar por usuario, motivo o descripción...">
+    ${reports.length ? `<div style="overflow:auto"><table class="table"><thead><tr><th>Fecha</th><th>Reportó</th><th>Usuario reportado</th><th>Motivo</th><th>Estado</th><th></th></tr></thead><tbody id="reportRows">
+      ${reports.map(r => {
+        const status = r.status || r.estado || "Pendiente";
+        const reporter = r.reporterName || r.reporterNombre || r.reporterEmail || r.reporterId || "—";
+        const reported = r.reportedUserName || r.reportedNombre || r.reportedUserEmail || r.reportedUserId || "—";
+        return `<tr>
+          <td>${esc(dateValue(r.createdAt || r.creadoEn))}</td>
+          <td><b>${esc(reporter)}</b><br><small>${esc(r.reporterId || "")}</small></td>
+          <td><b>${esc(reported)}</b><br><small>${esc(r.reportedUserId || "")}</small></td>
+          <td>${esc(r.reason || r.motivo || "—")}</td>
+          <td><select class="statusSelect reportStatus" data-id="${esc(r.id)}"><option ${status==='Pendiente'?'selected':''}>Pendiente</option><option ${status==='En revisión'?'selected':''}>En revisión</option><option ${status==='Resuelto'?'selected':''}>Resuelto</option><option ${status==='Descartado'?'selected':''}>Descartado</option></select></td>
+          <td><button class="smallbtn" data-report-open="${esc(r.id)}">Ver</button></td>
+        </tr>`;
+      }).join("")}
+    </tbody></table></div>` : `<div class="empty">No hay reportes de usuarios todavía.</div>`}
+  </div>`;
+
+  const search = $("reportSearch");
+  if (search) search.oninput = e => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll("#reportRows tr").forEach(r => r.style.display = r.innerText.toLowerCase().includes(q) ? "" : "none");
+  };
+
+  document.querySelectorAll(".reportStatus").forEach(s => s.onchange = async e => {
+    try {
+      await updateDoc(doc(db, "userReports", e.target.dataset.id), {status:e.target.value, updatedAt:serverTimestamp()});
+      await loadUserReports();
+    } catch (err) {
+      alert("No se pudo actualizar el reporte: " + (err.message || err));
+    }
+  });
+
+  document.querySelectorAll("[data-report-open]").forEach(b => b.onclick = () => {
+    const r = reports.find(x => x.id === b.dataset.reportOpen);
+    if (!r) return;
+    const reporter = r.reporterName || r.reporterNombre || r.reporterEmail || r.reporterId || "—";
+    const reported = r.reportedUserName || r.reportedNombre || r.reportedUserEmail || r.reportedUserId || "—";
+    alert(`Reporte #${r.id}\n\nReportó: ${reporter}\nUID reportante: ${r.reporterId || "—"}\n\nUsuario reportado: ${reported}\nUID reportado: ${r.reportedUserId || "—"}\n\nMotivo: ${r.reason || r.motivo || "—"}\n\nDescripción:\n${r.description || r.descripcion || r.mensaje || "Sin descripción."}\n\nFecha: ${dateValue(r.createdAt || r.creadoEn)}\nEstado: ${r.status || r.estado || "Pendiente"}\n\nNota del administrador:\n${r.adminNote || r.notaAdmin || "Sin nota."}`);
+  });
+
+  return reports;
+}
+
 async function render(page = "dashboard") {
   title.textContent = titles[page];
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
@@ -155,22 +176,26 @@ async function render(page = "dashboard") {
       await loadTickets();
       return;
     }
-    if (page === "torti") {
-      await loadTorti();
+    if (page === "userReports") {
+      await loadUserReports();
       return;
     }
     if (page === "dashboard") {
-      const [usersSnap, ticketsSnap] = await Promise.all([
+      const [usersSnap, ticketsSnap, reportsSnap] = await Promise.all([
         getDocs(collection(db,"users")),
-        getDocs(collection(db,"supportTickets"))
+        getDocs(collection(db,"supportTickets")),
+        getDocs(collection(db,"userReports"))
       ]);
       const users = usersSnap.docs.map(d=>d.data());
       const tickets = ticketsSnap.docs.map(d=>d.data());
+      const userReports = reportsSnap.docs.map(d=>d.data());
       const pending = tickets.filter(t=>t.estado === "Pendiente").length;
+      const pendingUserReports = userReports.filter(r=>(r.status || r.estado || "Pendiente") === "Pendiente").length;
       const versions = {};
       users.forEach(u => versions[u.versionApp || "Desconocida"] = (versions[u.versionApp || "Desconocida"] || 0)+1);
       const topVersion = Object.entries(versions).sort((a,b)=>b[1]-a[1])[0]?.[0] || "—";
-      content.innerHTML = `<div class="stats"><div class="stat"><div class="label">Usuarios registrados</div><div class="num">${users.length}</div><span class="tag">Firebase</span></div><div class="stat"><div class="label">Reportes totales</div><div class="num">${tickets.length}</div><span class="tag">Soporte</span></div><div class="stat"><div class="label">Reportes pendientes</div><div class="num">${pending}</div><span class="tag red">Requieren atención</span></div><div class="stat"><div class="label">Versión más usada</div><div class="num">${esc(topVersion)}</div><span class="tag">Actual</span></div></div><div class="grid2"><div class="panel"><h3>Estado del sistema</h3><div class="row"><span>Firebase Auth</span><span class="tag">Conectado</span></div><div class="row"><span>Cloud Firestore</span><span class="tag">Conectado</span></div><div class="row"><span>Usuarios sincronizados</span><b>${users.length}</b></div></div><div class="panel"><h3>Reportes recientes</h3>${tickets.slice().sort((a,b)=>(b.creadoEn?.seconds||0)-(a.creadoEn?.seconds||0)).slice(0,5).map(t=>`<div class="row"><div><b>${esc(t.asunto)}</b><br><small>${esc(t.nombre)} · ${esc(t.tipo)}</small></div><span class="tag ${t.estado==='Pendiente'?'red':t.estado==='En revisión'?'orange':''}">${esc(t.estado)}</span></div>`).join("") || '<p class="muted">Todavía no hay reportes.</p>'}</div></div>`;
+      reportBadge.textContent = pendingUserReports;
+      content.innerHTML = `<div class="stats"><div class="stat"><div class="label">Usuarios registrados</div><div class="num">${users.length}</div><span class="tag">Firebase</span></div><div class="stat"><div class="label">Reportes totales</div><div class="num">${tickets.length}</div><span class="tag">Soporte</span></div><div class="stat"><div class="label">Reportes pendientes</div><div class="num">${pendingUserReports}</div><span class="tag red">Usuarios reportados</span></div><div class="stat"><div class="label">Reportes totales</div><div class="num">${userReports.length}</div><span class="tag">Usuarios</span></div><div class="stat"><div class="label">Versión más usada</div><div class="num">${esc(topVersion)}</div><span class="tag">Actual</span></div></div><div class="grid2"><div class="panel"><h3>Estado del sistema</h3><div class="row"><span>Firebase Auth</span><span class="tag">Conectado</span></div><div class="row"><span>Cloud Firestore</span><span class="tag">Conectado</span></div><div class="row"><span>Usuarios sincronizados</span><b>${users.length}</b></div></div><div class="panel"><h3>Reportes recientes</h3>${tickets.slice().sort((a,b)=>(b.creadoEn?.seconds||0)-(a.creadoEn?.seconds||0)).slice(0,5).map(t=>`<div class="row"><div><b>${esc(t.asunto)}</b><br><small>${esc(t.nombre)} · ${esc(t.tipo)}</small></div><span class="tag ${t.estado==='Pendiente'?'red':t.estado==='En revisión'?'orange':''}">${esc(t.estado)}</span></div>`).join("") || '<p class="muted">Todavía no hay reportes.</p>'}</div></div>`;
       return;
     }
     if (page === "versions") {
@@ -219,10 +244,4 @@ loginBtn.onclick = async () => {
   }
 };
 logoutBtn.onclick = () => signOut(auth);
-document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", async () => {
-  const page = b.dataset.page;
-  if (!page) return;
-  title.textContent = titles[page] || page;
-  content.innerHTML = `<div class="panel"><p class="muted">Cargando ${esc(titles[page] || page)}…</p></div>`;
-  await render(page);
-}));
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => render(b.dataset.page));

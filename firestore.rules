@@ -17,23 +17,27 @@ service cloud.firestore {
       allow delete: if isOwner(uid) || isAdmin();
     }
 
-    match /gamificationAdmin/{uid} {
-      allow read: if isOwner(uid) || isAdmin();
-      allow create, update: if isAdmin();
-      allow delete: if isAdmin();
-    }
-
-    match /gamificationAdmin/{uid}/history/{entryId} {
-      allow read: if isOwner(uid) || isAdmin();
-      allow create: if isAdmin();
-      allow update, delete: if isAdmin();
-    }
-
     match /supportTickets/{ticketId} {
       allow create: if (signedIn() && request.resource.data.uid == request.auth.uid) || (!signedIn() && request.resource.data.uid == null && request.resource.data.origen == "web" && request.resource.data.correo is string && request.resource.data.correo.size() > 3);
       allow read: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
       allow update: if isAdmin();
       allow delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // Reportes enviados desde la app sobre otro usuario/amigo.
+    // El usuario solo puede crear su propio reporte; la gestión queda en Admin.
+    match /userReports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.reporterId == request.auth.uid
+        && request.resource.data.reportedUserId is string
+        && request.resource.data.reportedUserId.size() > 0
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.status == "Pendiente";
+
+      allow read: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
   }
 }
