@@ -10,12 +10,15 @@ import {
   collection,
   getDocs,
   query,
+  where,
   orderBy,
   limit,
   doc,
   getDoc,
   updateDoc,
-  serverTimestamp
+  serverTimestamp,
+  addDoc,
+  runTransaction
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 
 const config = window.SCHOOL_REMINDER_FIREBASE_CONFIG;
@@ -42,11 +45,12 @@ const logoutBtn = $("logoutBtn");
 const content = $("content");
 const title = $("title");
 const badge = $("ticketBadge");
-const reportBadge = $("reportBadge");
+const reportBadge = $("userReportBadge");
 
 const titles = {
   dashboard: "Resumen general",
   users: "Usuarios",
+  torti: "Torti Coins",
   tickets: "Soporte",
   userReports: "Reportes de usuarios",
   versions: "Versiones",
@@ -67,6 +71,21 @@ function dateValue(v) {
   return String(v);
 }
 
+// Mismos tipos que registra ActivityLogger.kt en la app (colección "userActivity").
+const ACTIVITY_LABELS = {
+  tarea_creada: "📝 Tarea creada",
+  materia_creada: "📚 Materia creada",
+  tarea_completada: "✅ Tarea completada",
+  amigo_agregado: "👥 Amigo agregado",
+  mensaje_enviado: "💬 Mensaje enviado",
+  recompensa: "🪙 Recompensa",
+  login: "🔐 Inicio de sesión"
+};
+
+function activityLabel(tipo) {
+  return ACTIVITY_LABELS[tipo] || `• ${esc(tipo || "Evento")}`;
+}
+
 async function isAdmin(user) {
   const token = await user.getIdTokenResult(true);
   return token.claims?.admin === true;
@@ -75,12 +94,85 @@ async function isAdmin(user) {
 async function loadUsers() {
   const snap = await getDocs(collection(db, "users"));
   const users = snap.docs.map(d => ({id:d.id, ...d.data()}));
-  $("content").innerHTML = `<div class="panel"><h3>Usuarios registrados</h3><input class="search" id="userSearch" placeholder="Buscar por nombre, correo o UID..."><table class="table"><thead><tr><th>Usuario</th><th>Proveedor</th><th>Versión</th><th>Dispositivo</th><th>Último acceso</th></tr></thead><tbody id="userRows">${users.map(u => `<tr><td><b>${esc(u.nombre)}</b><br><small>${esc(u.correo)}<br>${esc(u.uid || u.id)}</small></td><td>${esc(u.proveedor)}</td><td>${esc(u.versionApp)}</td><td>${esc(u.dispositivo)}<br><small>Android ${esc(u.android)}</small></td><td>${esc(dateValue(u.ultimoAcceso))}</td></tr>`).join("")}</tbody></table></div>`;
+  $("content").innerHTML = `<div class="panel"><h3>Usuarios registrados</h3><input class="search" id="userSearch" placeholder="Buscar por nombre, correo o UID..."><table class="table"><thead><tr><th>Usuario</th><th>Proveedor</th><th>Versión</th><th>Dispositivo</th><th>Último acceso</th><th></th></tr></thead><tbody id="userRows">${users.map(u => `<tr><td><b>${esc(u.nombre)}</b><br><small>${esc(u.correo)}<br>${esc(u.uid || u.id)}</small></td><td>${esc(u.proveedor)}</td><td>${esc(u.versionApp)}</td><td>${esc(u.dispositivo)}<br><small>Android ${esc(u.android)}</small></td><td>${esc(dateValue(u.ultimoAcceso))}</td><td><button class="smallbtn" data-activity="${esc(u.uid || u.id)}" data-nombre="${esc(u.nombre)}">Actividad</button></td></tr>`).join("")}</tbody></table></div>`;
   $("userSearch").oninput = e => {
     const q = e.target.value.toLowerCase();
     document.querySelectorAll("#userRows tr").forEach(r => r.style.display = r.innerText.toLowerCase().includes(q) ? "" : "none");
   };
+  document.querySelectorAll("[data-activity]").forEach(b => b.onclick = () => loadUserActivity(b.dataset.activity, b.dataset.nombre));
   return users;
+}
+
+async function loadUserActivity(uid, nombre) {
+  title.textContent = "Usuarios";
+  content.innerHTML = `<div class="panel"><h3>Cargando actividad…</h3></div>`;
+  try {
+    const snap = await getDocs(
+      query(collection(db, "userActivity"), where("uid", "==", uid), orderBy("timestamp", "desc"), limit(200))
+    );
+    const eventos = snap.docs.map(d => d.data());
+    content.innerHTML = `<div class="panel">
+      <button class="smallbtn" id="backToUsers" style="margin-bottom:14px">← Volver a usuarios</button>
+      <h3>👤 Usuario: ${esc(nombre || uid)}</h3>
+      <table class="table"><thead><tr><th>Fecha/hora</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>${
+        eventos.length
+          ? eventos.map(e => `<tr><td>${esc(dateValue(e.timestamp))}</td><td>${activityLabel(e.tipo)}</td><td>${esc(e.detalle || "—")}</td></tr>`).join("")
+          : `<tr><td colspan="3" class="empty">Todavía no hay actividad registrada para este usuario.</td></tr>`
+      }</tbody></table>
+    </div>`;
+    $("backToUsers").onclick = () => render("users");
+  } catch (e) {
+    // La primera vez, Firestore suele pedir crear un índice compuesto
+    // (uid + timestamp); el mensaje de error trae un enlace para crearlo
+    // con un clic desde la consola de Firebase.
+    content.innerHTML = `<div class="panel">
+      <button class="smallbtn" id="backToUsers" style="margin-bottom:14px">← Volver a usuarios</button>
+      <h3>No se pudo cargar la actividad</h3>
+      <p>${esc(e.message || e)}</p>
+      <p class="muted">Si el error menciona un índice, abre el enlace que trae: Firestore lo crea solo con un clic.</p>
+    </div>`;
+    $("backToUsers").onclick = () => render("users");
+  }
+}
+
+async function loadTorti() {
+  const usersSnap = await getDocs(collection(db, "users"));
+  const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data(), uid: d.data().uid || d.id }));
+  const rows = await Promise.all(users.map(async u => {
+    const snap = await getDoc(doc(db, "gamificationAdmin", u.uid));
+    return { ...u, grantedCoins: snap.exists() ? Number(snap.data().grantedCoins || 0) : 0 };
+  }));
+  content.innerHTML = `<div class="panel"><h3>🌮 Torti Coins para testers</h3><p class="muted">Otorga monedas adicionales a un usuario específico. Las monedas entregadas desde aquí quedan registradas y no sustituyen las que el usuario consiga mediante logros.</p><div class="grid2"><div><label>Usuario</label><select id="tortiUser" class="search">${rows.map(u => `<option value="${esc(u.uid)}">${esc(u.nombre || u.correo || u.uid)} · ${esc(u.correo || "")}</option>`).join("")}</select><label style="display:block;margin-top:12px">Cantidad de Torti Coins</label><input id="tortiAmount" class="search" type="number" min="1" max="100000" value="100"><label style="display:block;margin-top:12px">Motivo</label><input id="tortiReason" class="search" maxlength="120" placeholder="Ej. Prueba de la tienda"><button id="grantTorti" class="loginButton" style="margin-top:14px">Otorgar 🌮</button><p id="tortiMsg" class="muted"></p></div><div><h3>Saldo otorgado por administración</h3><div id="tortiSelected" class="panel"></div></div></div></div><div class="panel" style="margin-top:18px"><h3>Usuarios y saldo administrativo</h3><table class="table"><thead><tr><th>Usuario</th><th>UID</th><th>Torti Coins otorgadas</th></tr></thead><tbody>${rows.map(u => `<tr><td><b>${esc(u.nombre || "Sin nombre")}</b><br><small>${esc(u.correo || "")}</small></td><td><small>${esc(u.uid)}</small></td><td>🌮 <b>${u.grantedCoins}</b></td></tr>`).join("")}</tbody></table></div>`;
+
+  const select = $("tortiUser");
+  const refreshSelected = () => {
+    const u = rows.find(x => x.uid === select.value);
+    $("tortiSelected").innerHTML = u ? `<b>${esc(u.nombre || u.correo || u.uid)}</b><p>Otorgadas por admin: 🌮 ${u.grantedCoins}</p>` : "";
+  };
+  select.onchange = refreshSelected;
+  refreshSelected();
+  $("grantTorti").onclick = async () => {
+    const uid = select.value;
+    const amount = Number($("tortiAmount").value);
+    const reason = $("tortiReason").value.trim() || "Recompensa administrativa";
+    const msg = $("tortiMsg");
+    if (!uid || !Number.isInteger(amount) || amount < 1 || amount > 100000) { msg.textContent = "La cantidad debe ser un número entero entre 1 y 100,000."; return; }
+    $("grantTorti").disabled = true;
+    try {
+      const ref = doc(db, "gamificationAdmin", uid);
+      const before = await getDoc(ref);
+      const oldTotal = before.exists() ? Number(before.data().grantedCoins || 0) : 0;
+      await runTransaction(db, async tx => {
+        const snap = await tx.get(ref);
+        const current = snap.exists() ? Number(snap.data().grantedCoins || 0) : 0;
+        tx.set(ref, { uid, grantedCoins: current + amount, updatedAt: serverTimestamp() }, { merge: true });
+      });
+      await addDoc(collection(db, "gamificationAdmin", uid, "history"), { amount, reason, adminUid: auth.currentUser?.uid || "", adminEmail: auth.currentUser?.email || "", previousTotal: oldTotal, createdAt: serverTimestamp() });
+      msg.textContent = `✅ Se otorgaron ${amount} Torti Coins.`;
+      await loadTorti();
+    } catch (e) { msg.textContent = `No se pudo otorgar la recompensa: ${e.message || e}`; }
+    finally { const b=$("grantTorti"); if (b) b.disabled=false; }
+  };
 }
 
 async function loadTickets() {
@@ -100,8 +192,6 @@ async function loadTickets() {
   });
   return tickets;
 }
-
-
 
 async function loadUserReports() {
   const snap = await getDocs(collection(db, "userReports"));
@@ -169,7 +259,7 @@ async function render(page = "dashboard") {
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
   try {
     if (page === "users") {
-      const users = await loadUsers();
+      await loadUsers();
       return;
     }
     if (page === "tickets") {
@@ -178,6 +268,10 @@ async function render(page = "dashboard") {
     }
     if (page === "userReports") {
       await loadUserReports();
+      return;
+    }
+    if (page === "torti") {
+      await loadTorti();
       return;
     }
     if (page === "dashboard") {
@@ -194,8 +288,9 @@ async function render(page = "dashboard") {
       const versions = {};
       users.forEach(u => versions[u.versionApp || "Desconocida"] = (versions[u.versionApp || "Desconocida"] || 0)+1);
       const topVersion = Object.entries(versions).sort((a,b)=>b[1]-a[1])[0]?.[0] || "—";
+      badge.textContent = pending;
       reportBadge.textContent = pendingUserReports;
-      content.innerHTML = `<div class="stats"><div class="stat"><div class="label">Usuarios registrados</div><div class="num">${users.length}</div><span class="tag">Firebase</span></div><div class="stat"><div class="label">Reportes totales</div><div class="num">${tickets.length}</div><span class="tag">Soporte</span></div><div class="stat"><div class="label">Reportes pendientes</div><div class="num">${pendingUserReports}</div><span class="tag red">Usuarios reportados</span></div><div class="stat"><div class="label">Reportes totales</div><div class="num">${userReports.length}</div><span class="tag">Usuarios</span></div><div class="stat"><div class="label">Versión más usada</div><div class="num">${esc(topVersion)}</div><span class="tag">Actual</span></div></div><div class="grid2"><div class="panel"><h3>Estado del sistema</h3><div class="row"><span>Firebase Auth</span><span class="tag">Conectado</span></div><div class="row"><span>Cloud Firestore</span><span class="tag">Conectado</span></div><div class="row"><span>Usuarios sincronizados</span><b>${users.length}</b></div></div><div class="panel"><h3>Reportes recientes</h3>${tickets.slice().sort((a,b)=>(b.creadoEn?.seconds||0)-(a.creadoEn?.seconds||0)).slice(0,5).map(t=>`<div class="row"><div><b>${esc(t.asunto)}</b><br><small>${esc(t.nombre)} · ${esc(t.tipo)}</small></div><span class="tag ${t.estado==='Pendiente'?'red':t.estado==='En revisión'?'orange':''}">${esc(t.estado)}</span></div>`).join("") || '<p class="muted">Todavía no hay reportes.</p>'}</div></div>`;
+      content.innerHTML = `<div class="stats"><div class="stat"><div class="label">Usuarios registrados</div><div class="num">${users.length}</div><span class="tag">Firebase</span></div><div class="stat"><div class="label">Reportes de soporte</div><div class="num">${tickets.length}</div><span class="tag">Soporte</span></div><div class="stat"><div class="label">Reportes de usuarios</div><div class="num">${userReports.length}</div><span class="tag red">${pendingUserReports} pendientes</span></div><div class="stat"><div class="label">Versión más usada</div><div class="num">${esc(topVersion)}</div><span class="tag">Actual</span></div></div><div class="grid2"><div class="panel"><h3>Estado del sistema</h3><div class="row"><span>Firebase Auth</span><span class="tag">Conectado</span></div><div class="row"><span>Cloud Firestore</span><span class="tag">Conectado</span></div><div class="row"><span>Usuarios sincronizados</span><b>${users.length}</b></div></div><div class="panel"><h3>Reportes de soporte recientes</h3>${tickets.slice().sort((a,b)=>(b.creadoEn?.seconds||0)-(a.creadoEn?.seconds||0)).slice(0,5).map(t=>`<div class="row"><div><b>${esc(t.asunto)}</b><br><small>${esc(t.nombre)} · ${esc(t.tipo)}</small></div><span class="tag ${t.estado==='Pendiente'?'red':t.estado==='En revisión'?'orange':''}">${esc(t.estado)}</span></div>`).join("") || '<p class="muted">Todavía no hay reportes.</p>'}</div></div>`;
       return;
     }
     if (page === "versions") {

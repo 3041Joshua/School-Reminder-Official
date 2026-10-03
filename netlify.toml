@@ -3,12 +3,20 @@
 
 [[redirects]]
   from = "/admin"
-  to = "/admin/index.html"
+  to = "/admin/admin.html"
   status = 200
 
 [[redirects]]
   from = "/admin/"
-  to = "/admin/index.html"
+  to = "/admin/admin.html"
+  status = 200
+
+# El panel vivía antes también en /admin.html (raíz), duplicado con el real
+# en /admin/admin.html. Se quitó ese duplicado; esto mantiene vivo cualquier
+# marcador/enlace viejo a /admin.html apuntando al panel real.
+[[redirects]]
+  from = "/admin.html"
+  to = "/admin/admin.html"
   status = 200
 
 [[redirects]]
